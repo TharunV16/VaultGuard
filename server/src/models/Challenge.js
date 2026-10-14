@@ -18,6 +18,9 @@ const ChallengeSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    devCode: {
+      type: String,
+    },
     attempts: {
       type: Number,
       default: 0,

@@ -199,6 +199,7 @@ router.post('/register', registerLimiter, validate(RegisterSchema), async (req, 
     userId: user._id,
     purpose: 'email_verify',
     codeHash,
+    devCode: process.env.NODE_ENV !== 'production' ? verifyCode : undefined,
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
   });
 
@@ -792,6 +793,7 @@ router.post('/recovery/start', authLimiter, validate(RecoveryStartSchema), async
     userId: user._id,
     purpose: 'recovery',
     codeHash,
+    devCode: process.env.NODE_ENV !== 'production' ? token : undefined,
     attempts: 0,
     expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 min TTL
   });
@@ -1097,6 +1099,30 @@ router.post('/recovery/reset-account', authLimiter, validate(ResetAccountSchema)
     message: 'Vault wiped and account reset successfully. You can now log in with your new master password.',
   });
 });
+
+// ── Test hook: fetch latest challenge code in dev/test (project.md §11) ────
+if (process.env.NODE_ENV !== 'production') {
+  router.get('/test-hook/code', async (req, res) => {
+    const email = typeof req.query.email === 'string' ? req.query.email.toLowerCase().trim() : '';
+    const purpose = typeof req.query.purpose === 'string' ? req.query.purpose : 'email_verify';
+    if (!email) {
+      return res.status(400).json({ error: 'Email query parameter required' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const challenge = await Challenge.findOne({
+      userId: user._id,
+      purpose,
+      usedAt: null,
+    }).sort({ createdAt: -1 });
+
+    res.json({ code: challenge?.devCode || null });
+  });
+}
 
 export default router;
 

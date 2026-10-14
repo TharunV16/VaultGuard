@@ -4,9 +4,11 @@ import { z } from 'zod';
 import mongoose from 'mongoose';
 import { Item } from '../models/Item.js';
 import { Folder } from '../models/Folder.js';
+import { User } from '../models/User.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { logAudit } from '../../lib/audit.js';
+import { sendMail } from '../../lib/mail.js';
 
 const router = Router();
 
@@ -298,6 +300,36 @@ router.delete('/folders/:id', async (req, res) => {
   }
 
   res.json({ status: 'ok', message: 'Folder deleted' });
+});
+
+// ── POST /vault/export-audit (VLT-13, AUD-01, AUD-02) ────────────────────────
+const ExportAuditSchema = z.object({
+  format: z.enum(['encrypted_json', 'plaintext_csv']),
+  itemCount: z.number().int().min(0),
+});
+
+router.post('/export-audit', validate(ExportAuditSchema), async (req, res) => {
+  const { format, itemCount } = req.body;
+
+  if (format === 'plaintext_csv') {
+    const user = await User.findById(req.user.id);
+    if (user) {
+      sendMail({
+        to: user.email,
+        subject: 'Security Alert: Vault exported as plaintext CSV',
+        text: `Your VaultGuard vault (${itemCount} items) was exported in plaintext CSV format. If you did not authorize this, please change your master password immediately.`,
+      }).catch(() => {});
+    }
+  }
+
+  await logAudit({
+    userId: req.user.id,
+    event: 'export',
+    req,
+    meta: { format, itemCount },
+  });
+
+  res.json({ status: 'ok' });
 });
 
 export default router;

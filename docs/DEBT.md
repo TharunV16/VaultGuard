@@ -11,5 +11,7 @@ Ponytail shortcuts ledger. One row per deliberate ceiling-cut.
 | 5 | server/lib/webauthn.js | Direct `@simplewebauthn` with `none` attestation | WebAuthn passkeys without hardware root verification | Add enterprise attestation if enterprise SSO/MDM demands | MFA-04 |
 | 6 | client/src/components/ItemEditor.jsx | Password history stored in encrypted item payload (client-only, last 5) | No server audit trail of prior passwords | Move to server-side history ledger if compliance requires it | VLT-11 |
 | 7 | client/src/pages/Vault.jsx | Client-side search: Array.filter on decrypted items | Scales to ~10k items in memory | Add server-side FTS (MongoDB Atlas) if vault > 10k items | VLT-12 |
-| 8 | client/src/lib/strength.js | zxcvbn-ts statically imported (not dynamic) causing large bundle index chunk | Initial JS >250 KB gzip when StrengthMeter is in critical path | Wrap in dynamic import + React.lazy for pages where strength meter is not above-fold | NFR-perf |
+| 8 | client/vite.config.js | zxcvbn isolated into manualChunk (resolved: index is 122 KB gzip) | Main bundle clean; zxcvbn loaded as vendor chunk | Move to dynamic import if initial page load must defer dictionary entirely | NFR-perf |
+| 9 | scripts/smoke.mjs | Ephemeral in-process fallback with MongoMemoryServer if BASE_URL unavailable | Dev & CI single-process only | Run against external BASE_URL in distributed staging environments | SMK-01 |
+
 

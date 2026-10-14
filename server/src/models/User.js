@@ -74,6 +74,7 @@ const UserSchema = new mongoose.Schema(
       breachAutoScan: { type: Boolean, default: true },
       snapshotsOptIn: { type: Boolean, default: false },
       theme: { type: String, default: 'system' },
+      generatorDefaults: { type: mongoose.Schema.Types.Mixed, default: {} },
     },
     role: {
       type: String,

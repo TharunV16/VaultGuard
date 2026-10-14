@@ -157,6 +157,12 @@ router.post('/backup-codes/regenerate', requireAuth, requireStepUp, authLimiter,
 
   await logAudit({ userId: user._id, event: 'mfa.backup_codes_regenerated', req });
 
+  sendMail({
+    to: user.email,
+    subject: 'Security Alert: New MFA backup codes generated',
+    text: 'A new set of emergency MFA backup codes was generated for your VaultGuard account. Any previously generated backup codes have been invalidated.',
+  }).catch(() => {});
+
   res.json({ backupCodes: plainCodes });
 });
 
@@ -336,6 +342,12 @@ router.delete('/passkeys/:id', requireAuth, requireStepUp, authLimiter, async (r
 
   await user.save();
   await logAudit({ userId: user._id, event: 'mfa.passkey_removed', req, meta: { passkeyId: req.params.id } });
+
+  sendMail({
+    to: user.email,
+    subject: 'Security Alert: Passkey removed from account',
+    text: 'A security passkey was removed from your VaultGuard account. If you did not do this, please change your master password immediately.',
+  }).catch(() => {});
 
   res.json({ status: 'ok', message: 'Passkey removed successfully' });
 });

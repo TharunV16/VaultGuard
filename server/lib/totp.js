@@ -58,6 +58,18 @@ export function generateTotpSecret() {
 }
 
 /**
+ * Generate the current TOTP code for a secret (for testing and smoke script).
+ * @param {string} secretBase32
+ * @param {number} [nowSec]
+ * @returns {string} 6-digit code
+ */
+export function generateTotpCode(secretBase32, nowSec = Math.floor(Date.now() / 1000)) {
+  const secret = base32ToBuffer(secretBase32);
+  const counter = Math.floor(nowSec / STEP);
+  return hotp(secret, counter);
+}
+
+/**
  * Build a otpauth:// URI for QR code generation.
  * @param {string} email
  * @param {string} secretBase32

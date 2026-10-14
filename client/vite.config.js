@@ -20,6 +20,7 @@ export default defineConfig({
         // Code-split heavy deps to keep initial bundle ≤ 250 KB gzip (SRS NFR-perf)
         manualChunks: {
           react: ['react', 'react-dom', 'react-router-dom'],
+          zxcvbn: ['@zxcvbn-ts/core', '@zxcvbn-ts/language-common', '@zxcvbn-ts/language-en'],
           recharts: ['recharts'],
           qrcode: ['qrcode.react'],
           papaparse: ['papaparse'],

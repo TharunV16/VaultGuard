@@ -86,4 +86,20 @@ Maps every SRS FR ID to implementation files and tests. Updated at the end of ea
 | SND-03 | P1 | Owner list and revoke sends; TTL auto-purge | server/src/routes/send.js, client/src/pages/Send.jsx | server/test/send.test.js |
 | SND-04 | P1 | Fragment key never reaches server; referrerPolicy no-referrer | client/src/pages/SendView.jsx | server/test/send.test.js |
 | AT-26 | P0 | Parallel access race: exactly one wins with maxViews=1 | server/src/routes/send.js | server/test/send.test.js |
+| — | — | Phase 8: Polish, Hardening & Audit | | |
+| VLT-13 | P1 | Export: encrypted JSON default; plaintext CSV with step-up and alert | client/src/pages/Settings.jsx, server/src/routes/vault.js | server/test/me.test.js |
+| SES-01 | P0 | List active sessions, device label, coarse IP prefix, revoke one/all | server/src/routes/me.js, client/src/pages/Settings.jsx | server/test/me.test.js |
+| AUD-01 | P0 | User-visible paginated audit log, 365-day TTL, categories | server/src/routes/me.js, client/src/pages/Audit.jsx | server/test/me.test.js |
+| AUD-02 | P1 | High-risk events send security alert email | server/src/routes/me.js, server/src/routes/mfa.js, server/src/routes/vault.js | server/test/me.test.js |
+| SET-01 | P0 | Preferences: auto-lock, clipboard clear, theme, breach scan, generator | client/src/pages/Settings.jsx, server/src/routes/me.js | server/test/me.test.js |
+| SET-02 | P0 | Server-side settings contain only non-sensitive values | server/src/models/User.js, server/src/routes/me.js | server/test/me.test.js |
+| AUTH-15 | P0 | Change master password: step-up, re-wrap vaultKey, revoke sessions | client/src/pages/Settings.jsx, server/src/routes/me.js | server/test/me.test.js |
+| AUTH-18 | P1 | Account deletion: step-up, typed confirmation, full data wipe | client/src/pages/Settings.jsx, server/src/routes/me.js | server/test/me.test.js |
+| UX-01 | P0 | Responsive layout from 360px up (sidebar/bottom nav) | client/src/components/Layout.jsx | — |
+| UX-02 | P0 | Light/dark theme following prefers-color-scheme with manual override | client/src/components/Layout.jsx, client/src/pages/Settings.jsx | — |
+| UX-03 | P0 | Loading, empty, and error states; destructive actions use <dialog> | client/src/pages/Audit.jsx, client/src/pages/Settings.jsx | — |
+| UX-05 | P1 | Keyboard shortcuts: Ctrl+K, /, N, Ctrl+L | client/src/pages/Vault.jsx, client/src/context/AuthContext.jsx | — |
+| UX-06 | P0 | WCAG 2.2 AA accessibility compliance | client/src/ | — |
+| SMK-01 | P0 | End-to-end automated smoke test suite | scripts/smoke.mjs | npm run smoke |
+
 

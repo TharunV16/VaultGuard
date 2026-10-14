@@ -355,6 +355,28 @@ export default function Vault() {
     }
   }, [restoreItem, toast]);
 
+  // UX-05: Keyboard shortcuts (/ or Ctrl/Cmd+K to focus search, N for new item)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const activeEl = document.activeElement;
+      const isInput = activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || activeEl?.isContentEditable;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        document.getElementById('vaultSearch')?.focus();
+      } else if (e.key === '/' && !isInput) {
+        e.preventDefault();
+        document.getElementById('vaultSearch')?.focus();
+      } else if (e.key.toLowerCase() === 'n' && !isInput && !editingItem) {
+        e.preventDefault();
+        setEditingItem('new');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [editingItem]);
+
   return (
     <div className="max-w-4xl mx-auto p-4 md:p-6 space-y-4">
       {/* Header */}
