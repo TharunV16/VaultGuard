@@ -1,4 +1,5 @@
 import { createContext, useContext, useReducer, useCallback, useEffect, useRef } from 'react';
+import { setAuthHandlers } from '../lib/api.js';
 
 /**
  * Auth state shape:
