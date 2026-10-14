@@ -136,3 +136,39 @@ export function verifyStepUpToken(token) {
   return payload;
 }
 
+/**
+ * Issue a single-purpose recovery token (15 min per REC-02/03).
+ * @param {{ id: string, email: string }} user
+ * @returns {string} signed JWT with scope 'recovery'
+ */
+export function issueRecoveryToken(user) {
+  return sign(
+    { sub: user.id, email: user.email, scope: 'recovery' },
+    config.JWT_ACCESS_SECRET,
+    {
+      algorithm: 'HS256',
+      expiresIn: '15m',
+      issuer: 'vaultguard',
+      audience: 'vaultguard-client',
+    }
+  );
+}
+
+/**
+ * Verify a recovery token. Throws if invalid or expired.
+ * @param {string} token
+ * @returns {import('jsonwebtoken').JwtPayload}
+ */
+export function verifyRecoveryToken(token) {
+  const payload = verify(token, config.JWT_ACCESS_SECRET, {
+    algorithms: ['HS256'],
+    issuer: 'vaultguard',
+    audience: 'vaultguard-client',
+  });
+  if (typeof payload === 'string' || payload.scope !== 'recovery') {
+    throw new Error('Invalid token scope');
+  }
+  return payload;
+}
+
+

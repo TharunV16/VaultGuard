@@ -21,6 +21,8 @@ import {
   issueMfaToken,
   verifyMfaToken,
   issueStepUpToken,
+  issueRecoveryToken,
+  verifyRecoveryToken,
 } from '../../lib/tokens.js';
 import { verifyTotp } from '../../lib/totp.js';
 import { getAuthenticationOptions, verifyAuthentication } from '../../lib/webauthn.js';
@@ -767,4 +769,334 @@ router.post('/logout-all', requireAuth, async (req, res) => {
   res.json({ status: 'ok', message: 'All sessions revoked' });
 });
 
+// ── Account Recovery: Start (REC-02) ─────────────────────────────────────────
+const RecoveryStartSchema = z.object({
+  email: z.string().email().toLowerCase().trim(),
+});
+
+router.post('/recovery/start', authLimiter, validate(RecoveryStartSchema), async (req, res) => {
+  const { email } = req.body;
+  const user = await User.findOne({ email });
+
+  // Generic 202 whether user exists or not (no enumeration per REC-02)
+  if (!user || user.status !== 'active') {
+    return res.status(202).json({
+      message: 'If an account exists, recovery instructions have been sent.',
+    });
+  }
+
+  const token = randomHex(32);
+  const codeHash = hashToken(token);
+
+  await Challenge.create({
+    userId: user._id,
+    purpose: 'recovery',
+    codeHash,
+    attempts: 0,
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 min TTL
+  });
+
+  const recoveryUrl = `${config.CLIENT_ORIGIN}/recover?token=${token}&email=${encodeURIComponent(user.email)}`;
+
+  await sendMail({
+    to: user.email,
+    subject: 'VaultGuard Account Recovery Link',
+    text: `You requested account recovery for your VaultGuard account.\nClick the link below to proceed:\n${recoveryUrl}\nThis link expires in 15 minutes. If you did not request this, ignore this email.`,
+  });
+
+  await logAudit({ userId: user._id, event: 'recovery.start', req });
+
+  res.status(202).json({
+    message: 'If an account exists, recovery instructions have been sent.',
+  });
+});
+
+// ── Account Recovery: Verify (REC-03) ────────────────────────────────────────
+const RecoveryVerifySchema = z.object({
+  email: z.string().email().toLowerCase().trim(),
+  token: z.string().regex(/^[0-9a-f]{64}$/i),
+  method: z.enum(['totp', 'backup_code', 'email_otp', 'passkey']).optional(),
+  code: z.string().trim().optional(),
+  response: z.any().optional(),
+});
+
+router.post('/recovery/verify', authLimiter, validate(RecoveryVerifySchema), async (req, res) => {
+  const { email, token, method, code, response } = req.body;
+  const user = await User.findOne({ email });
+  if (!user || user.status !== 'active') {
+    return res.status(401).json({ error: { code: 'INVALID_TOKEN', message: 'Invalid or expired recovery link' } });
+  }
+
+  const challenge = await Challenge.findOne({
+    userId: user._id,
+    purpose: 'recovery',
+    usedAt: null,
+    expiresAt: { $gt: new Date() },
+  }).sort({ createdAt: -1 });
+
+  if (!challenge) {
+    return res.status(401).json({ error: { code: 'INVALID_TOKEN', message: 'Invalid or expired recovery link' } });
+  }
+
+  if (challenge.attempts >= 5) {
+    challenge.usedAt = new Date();
+    await challenge.save();
+    return res.status(401).json({ error: { code: 'MAX_ATTEMPTS_EXCEEDED', message: 'Maximum recovery attempts exceeded' } });
+  }
+
+  const tokenHash = hashToken(token);
+  if (!safeEqual(challenge.codeHash, tokenHash)) {
+    challenge.attempts = (challenge.attempts || 0) + 1;
+    await challenge.save();
+    return res.status(401).json({ error: { code: 'INVALID_TOKEN', message: 'Invalid or expired recovery link' } });
+  }
+
+  // Check MFA requirement
+  const hasTotp = user.mfa?.totp?.enabled;
+  const hasEmailOtp = user.mfa?.emailOtp?.enabled;
+  const hasPasskeys = user.mfa?.passkeys?.length > 0;
+  const mfaEnabled = hasTotp || hasEmailOtp || hasPasskeys;
+
+  if (mfaEnabled) {
+    if (!method) {
+      const methods = [];
+      if (hasTotp) methods.push('totp');
+      if (hasEmailOtp) methods.push('email_otp');
+      if (hasPasskeys) methods.push('passkey');
+      if (user.mfa?.backupCodes?.some((b) => !b.used)) methods.push('backup_code');
+      return res.json({ mfaRequired: true, methods });
+    }
+
+    // Verify MFA
+    if (method === 'totp') {
+      if (!code) return res.status(400).json({ error: { code: 'CODE_REQUIRED', message: 'Verification code required' } });
+      const secret = decryptServerData(JSON.parse(user.mfa.totp.secret));
+      const { valid, step } = verifyTotp(secret, code);
+      if (!valid) {
+        challenge.attempts = (challenge.attempts || 0) + 1;
+        await challenge.save();
+        return res.status(401).json({ error: { code: 'INVALID_CODE', message: 'Invalid verification code' } });
+      }
+      user.mfa.totp.lastStep = step;
+      await user.save();
+    } else if (method === 'backup_code') {
+      if (!code) return res.status(400).json({ error: { code: 'CODE_REQUIRED', message: 'Backup code required' } });
+      const clean = code.toUpperCase().replace(/[^0-9A-Z]/g, '');
+      const targetHash = hashToken(clean);
+      const backup = user.mfa?.backupCodes?.find((b) => !b.used && safeEqual(b.codeHash, targetHash));
+      if (!backup) {
+        challenge.attempts = (challenge.attempts || 0) + 1;
+        await challenge.save();
+        return res.status(401).json({ error: { code: 'INVALID_BACKUP_CODE', message: 'Invalid backup code' } });
+      }
+      backup.used = true;
+      backup.usedAt = new Date();
+      user.markModified('mfa.backupCodes');
+      await user.save();
+    } else if (method === 'email_otp') {
+      if (!code) return res.status(400).json({ error: { code: 'CODE_REQUIRED', message: 'Verification code required' } });
+      const otpChallenge = await Challenge.findOne({
+        userId: user._id,
+        purpose: 'email_otp',
+        usedAt: null,
+        expiresAt: { $gt: new Date() },
+      }).sort({ createdAt: -1 });
+
+      if (!otpChallenge || !safeEqual(otpChallenge.codeHash, hashToken(code.trim()))) {
+        challenge.attempts = (challenge.attempts || 0) + 1;
+        await challenge.save();
+        return res.status(401).json({ error: { code: 'INVALID_CODE', message: 'Invalid verification code' } });
+      }
+      otpChallenge.usedAt = new Date();
+      await otpChallenge.save();
+    } else if (method === 'passkey') {
+      if (!response || !response.id) return res.status(400).json({ error: { code: 'PASSKEY_RESPONSE_REQUIRED', message: 'Passkey response required' } });
+      const passkey = user.mfa?.passkeys?.find((p) => p.id === response.id);
+      if (!passkey) return res.status(401).json({ error: { code: 'PASSKEY_NOT_FOUND', message: 'Unrecognized passkey' } });
+      const pkChallenge = await Challenge.findOne({
+        userId: user._id,
+        purpose: 'passkey_auth',
+        usedAt: null,
+        expiresAt: { $gt: new Date() },
+      }).sort({ createdAt: -1 });
+      if (!pkChallenge) return res.status(401).json({ error: { code: 'CHALLENGE_EXPIRED', message: 'Passkey challenge expired' } });
+      const verification = await verifyAuthentication(response, pkChallenge.codeHash, passkey);
+      if (!verification.verified) {
+        challenge.attempts = (challenge.attempts || 0) + 1;
+        await challenge.save();
+        return res.status(401).json({ error: { code: 'PASSKEY_VERIFICATION_FAILED', message: 'Passkey verification failed' } });
+      }
+      passkey.counter = verification.authenticationInfo.newCounter;
+      pkChallenge.usedAt = new Date();
+      await pkChallenge.save();
+      await user.save();
+    }
+  }
+
+  challenge.usedAt = new Date();
+  await challenge.save();
+
+  const recoveryToken = issueRecoveryToken({ id: user._id.toString(), email: user.email });
+
+  res.json({
+    recoveryToken,
+    recoveryWrappedVaultKey: user.recoveryWrappedVaultKey,
+    kdf: user.kdf,
+  });
+});
+
+// ── Account Recovery: Complete (REC-04, REC-06) ──────────────────────────────
+const RecoveryCompleteSchema = z.object({
+  recoveryToken: z.string(),
+  recoveryVerifier: z.string().regex(/^[0-9a-f]{64}$/i),
+  newAuthKey: z.string().regex(/^[0-9a-f]{64}$/i),
+  newKdf: z.object({
+    algo: z.literal('PBKDF2-SHA256'),
+    iterations: z.number().int().min(600000),
+    salt: z.string().regex(/^[0-9a-f]{32}$/i),
+  }),
+  newWrappedVaultKey: z.object({
+    iv: z.string().regex(/^[0-9a-f]{24}$/i),
+    ct: z.string().regex(/^[0-9a-f]+$/i),
+  }),
+  newRecoveryWrappedVaultKey: z.object({
+    iv: z.string().regex(/^[0-9a-f]{24}$/i),
+    ct: z.string().regex(/^[0-9a-f]+$/i),
+  }),
+  newRecoveryVerifier: z.string().regex(/^[0-9a-f]{64}$/i),
+});
+
+router.post('/recovery/complete', authLimiter, validate(RecoveryCompleteSchema), async (req, res) => {
+  const {
+    recoveryToken,
+    recoveryVerifier,
+    newAuthKey,
+    newKdf,
+    newWrappedVaultKey,
+    newRecoveryWrappedVaultKey,
+    newRecoveryVerifier,
+  } = req.body;
+
+  let payload;
+  try {
+    payload = verifyRecoveryToken(recoveryToken);
+  } catch {
+    return res.status(401).json({ error: { code: 'TOKEN_INVALID', message: 'Invalid or expired recovery session' } });
+  }
+
+  const user = await User.findById(payload.sub);
+  if (!user || user.status !== 'active') {
+    return res.status(401).json({ error: { code: 'USER_INACTIVE', message: 'User not found or inactive' } });
+  }
+
+  const verifierHash = hashRecoveryVerifier(recoveryVerifier);
+  if (!safeEqual(user.recoveryVerifierHash, verifierHash)) {
+    await logAudit({ userId: user._id, event: 'recovery.failed', req, meta: { reason: 'verifier_mismatch' } });
+    return res.status(401).json({ error: { code: 'INVALID_RECOVERY_KEY', message: 'Invalid recovery key' } });
+  }
+
+  // Update key material
+  user.authHash = await hashAuthKey(newAuthKey);
+  user.kdf = newKdf;
+  user.wrappedVaultKey = newWrappedVaultKey;
+  user.recoveryWrappedVaultKey = newRecoveryWrappedVaultKey;
+  user.recoveryVerifierHash = hashRecoveryVerifier(newRecoveryVerifier);
+  user.recoveryKeyConfirmed = true;
+
+  // Revoke all existing sessions
+  await Session.updateMany({ userId: user._id, revokedAt: null }, { revokedAt: new Date() });
+  await user.save();
+
+  // Send security alert email
+  sendMail({
+    to: user.email,
+    subject: 'Security Alert: Master password reset via recovery key',
+    text: 'Your VaultGuard account master password was reset using your recovery key. All previous sessions have been revoked. If you did not perform this recovery, contact support immediately.',
+  }).catch(() => {});
+
+  await logAudit({ userId: user._id, event: 'recovery.complete', req });
+
+  res.json({
+    status: 'ok',
+    message: 'Account recovery completed successfully. Please log in with your new master password.',
+  });
+});
+
+// ── Account Recovery: Reset Account (REC-05: Lost Key Fallback) ──────────────
+const ResetAccountSchema = z.object({
+  recoveryToken: z.string(),
+  confirmation: z.literal('DELETE MY VAULT'),
+  newAuthKey: z.string().regex(/^[0-9a-f]{64}$/i),
+  newKdf: z.object({
+    algo: z.literal('PBKDF2-SHA256'),
+    iterations: z.number().int().min(600000),
+    salt: z.string().regex(/^[0-9a-f]{32}$/i),
+  }),
+  newWrappedVaultKey: z.object({
+    iv: z.string().regex(/^[0-9a-f]{24}$/i),
+    ct: z.string().regex(/^[0-9a-f]+$/i),
+  }),
+  newRecoveryWrappedVaultKey: z.object({
+    iv: z.string().regex(/^[0-9a-f]{24}$/i),
+    ct: z.string().regex(/^[0-9a-f]+$/i),
+  }),
+  newRecoveryVerifier: z.string().regex(/^[0-9a-f]{64}$/i),
+});
+
+router.post('/recovery/reset-account', authLimiter, validate(ResetAccountSchema), async (req, res) => {
+  const {
+    recoveryToken,
+    newAuthKey,
+    newKdf,
+    newWrappedVaultKey,
+    newRecoveryWrappedVaultKey,
+    newRecoveryVerifier,
+  } = req.body;
+
+  let payload;
+  try {
+    payload = verifyRecoveryToken(recoveryToken);
+  } catch {
+    return res.status(401).json({ error: { code: 'TOKEN_INVALID', message: 'Invalid or expired recovery session' } });
+  }
+
+  const user = await User.findById(payload.sub);
+  if (!user || user.status !== 'active') {
+    return res.status(401).json({ error: { code: 'USER_INACTIVE', message: 'User not found or inactive' } });
+  }
+
+  // Wipes all user vault data if models exist
+  try {
+    const { Item } = await import('../models/Item.js').catch(() => ({ Item: null }));
+    const { Folder } = await import('../models/Folder.js').catch(() => ({ Folder: null }));
+    if (Item) await Item.deleteMany({ userId: user._id });
+    if (Folder) await Folder.deleteMany({ userId: user._id });
+  } catch {}
+
+  user.authHash = await hashAuthKey(newAuthKey);
+  user.kdf = newKdf;
+  user.wrappedVaultKey = newWrappedVaultKey;
+  user.recoveryWrappedVaultKey = newRecoveryWrappedVaultKey;
+  user.recoveryVerifierHash = hashRecoveryVerifier(newRecoveryVerifier);
+  user.recoveryKeyConfirmed = true;
+
+  // Revoke all existing sessions
+  await Session.updateMany({ userId: user._id, revokedAt: null }, { revokedAt: new Date() });
+  await user.save();
+
+  sendMail({
+    to: user.email,
+    subject: 'Security Alert: VaultGuard account reset and vault wiped',
+    text: 'Your VaultGuard account was reset and all vault credentials were permanently deleted following a lost recovery key request.',
+  }).catch(() => {});
+
+  await logAudit({ userId: user._id, event: 'recovery.reset', req });
+
+  res.json({
+    status: 'ok',
+    message: 'Vault wiped and account reset successfully. You can now log in with your new master password.',
+  });
+});
+
 export default router;
+

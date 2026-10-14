@@ -39,4 +39,12 @@ Maps every SRS FR ID to implementation files and tests. Updated at the end of ea
 | MFA-06 | P0 | Step-up requirement for disabling MFA | server/src/middleware/stepUp.js, server/src/routes/mfa.js | server/test/mfa.test.js |
 | MFA-07 | P0 | Rate limits & audit logging for MFA | server/src/routes/auth.js, server/src/routes/mfa.js | server/test/mfa.test.js |
 | AUTH-16 | P0 | Step-up token generation & middleware | server/lib/tokens.js, server/src/middleware/stepUp.js, server/src/routes/auth.js | server/test/mfa.test.js |
+| — | — | Phase 4: Recovery | | |
+| REC-01 | P0 | 160-bit Recovery key generation & derivation | client/src/lib/crypto.js | client/src/test/crypto.test.js |
+| REC-02 | P0 | Recovery key compulsory confirmation during registration | client/src/pages/Register.jsx | manual |
+| REC-03 | P0 | Recovery start endpoint with generic 202 & email link | server/src/routes/auth.js, client/src/pages/Recover.jsx | server/test/recovery.test.js |
+| REC-04 | P0 | Recovery verify endpoint with optional MFA challenge | server/src/routes/auth.js, client/src/pages/Recover.jsx | server/test/recovery.test.js |
+| REC-05 | P0 | Recovery complete: verify verifier, re-wrap vaultKey, revoke sessions | server/src/routes/auth.js, client/src/pages/Recover.jsx | server/test/recovery.test.js |
+| REC-06 | P0 | Destructive account reset fallback (typed confirmation) | server/src/routes/auth.js, client/src/pages/Recover.jsx | server/test/recovery.test.js |
+| REC-07 | P1 | Recovery key rotation with step-up verification | server/src/routes/me.js, client/src/pages/Settings.jsx | server/test/recovery.test.js |
 

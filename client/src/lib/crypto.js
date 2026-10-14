@@ -191,7 +191,7 @@ export function encodeRecoveryKey(bytes) {
  * @returns {Uint8Array}
  */
 export function decodeRecoveryKey(encoded) {
-  return base32ToBuffer(encoded.replace(/\s/g, '').toUpperCase());
+  return base32ToBuffer(encoded.replace(/[\s-]/g, '').toUpperCase());
 }
 
 /**
