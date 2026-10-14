@@ -58,7 +58,7 @@ export function createApp() {
       origin: config.CLIENT_ORIGIN,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'If-Match'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'If-Match', 'x-step-up-token'],
       exposedHeaders: ['ETag'],
     })
   );

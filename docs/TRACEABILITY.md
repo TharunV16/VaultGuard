@@ -47,4 +47,17 @@ Maps every SRS FR ID to implementation files and tests. Updated at the end of ea
 | REC-05 | P0 | Recovery complete: verify verifier, re-wrap vaultKey, revoke sessions | server/src/routes/auth.js, client/src/pages/Recover.jsx | server/test/recovery.test.js |
 | REC-06 | P0 | Destructive account reset fallback (typed confirmation) | server/src/routes/auth.js, client/src/pages/Recover.jsx | server/test/recovery.test.js |
 | REC-07 | P1 | Recovery key rotation with step-up verification | server/src/routes/me.js, client/src/pages/Settings.jsx | server/test/recovery.test.js |
+| — | — | Phase 5: Vault CRUD & Client Encryption | | |
+| VLT-01 | P0 | Item AES-256-GCM encrypt/decrypt with AAD binding | client/src/context/VaultContext.jsx, client/src/lib/crypto.js | client/src/test/crypto.test.js |
+| VLT-02 | P0 | Vault sync endpoint with ETag / If-None-Match | server/src/routes/vault.js | server/test/vault.test.js |
+| VLT-03 | P0 | Item CRUD with optimistic concurrency (rev, If-Match) | server/src/routes/vault.js, server/src/models/Item.js | server/test/vault.test.js |
+| VLT-04 | P0 | Soft-delete trash with 30-day TTL purge | server/src/routes/vault.js, server/src/models/Item.js | server/test/vault.test.js |
+| VLT-05 | P1 | Folder CRUD | server/src/routes/vault.js, server/src/models/Folder.js | server/test/vault.test.js |
+| VLT-06 | P1 | Bulk import endpoint | server/src/routes/vault.js | server/test/vault.test.js |
+| VLT-07 | P1 | In-vault TOTP authenticator codes | client/src/lib/totp.js, client/src/pages/Vault.jsx | — |
+| VLT-08 | P1 | Clipboard auto-clear (30s) | client/src/lib/clipboard.js | — |
+| VLT-09 | P0 | IDOR isolation: all item/folder queries scoped by userId | server/src/routes/vault.js | server/test/vault.test.js |
+| VLT-10 | P1 | Password generator | client/src/lib/generator.js, client/src/components/ItemEditor.jsx | — |
+| VLT-11 | P1 | Password history (last 5) per item | client/src/components/ItemEditor.jsx | — |
+| VLT-12 | P1 | Item editor UI: login/card/note/apiKey types, favorite, tags, URIs | client/src/components/ItemEditor.jsx, client/src/pages/Vault.jsx | — |
 
