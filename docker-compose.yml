@@ -1,0 +1,36 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: "5000"
+      MONGO_URI: mongodb://mongo:27017/vaultguard
+      CLIENT_ORIGIN: http://localhost:5000
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      SERVER_ENCRYPTION_KEY: ${SERVER_ENCRYPTION_KEY}
+      DECOY_SECRET: ${DECOY_SECRET}
+      RP_ID: ${RP_ID:-localhost}
+      RP_NAME: ${RP_NAME:-VaultGuard}
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-VaultGuard <no-reply@vaultguard.local>}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  mongo-data:

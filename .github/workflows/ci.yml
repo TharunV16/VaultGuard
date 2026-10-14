@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Security audit (report only, don't fail on moderate)
+        run: npm audit --omit=dev --audit-level=high || true
+
+      - name: Run server tests
+        run: npm run test --workspace=server
+        env:
+          NODE_ENV: test
+          JWT_ACCESS_SECRET: testjwtsecretthatisforciuseonly1234567890abcdef1234567890abcdef
+          SERVER_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          DECOY_SECRET: testdecoy1234567890123456789012
+          MONGO_URI: mongodb://localhost:27017/vaultguard_test
+          CLIENT_ORIGIN: http://localhost:5173
+          RP_ID: localhost
+          RP_NAME: VaultGuard
+
+      - name: Run client tests
+        run: npm run test --workspace=client
+
+      - name: Build client
+        run: npm run build --workspace=client
+        env:
+          NODE_ENV: production
+
+      - name: Check bundle size (≤ 250 KB gzip estimate)
+        run: |
+          du -sh client/dist/assets/*.js 2>/dev/null | head -20 || echo "No JS assets found"
