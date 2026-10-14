@@ -11,7 +11,7 @@ const ChallengeSchema = new mongoose.Schema(
     },
     purpose: {
       type: String,
-      enum: ['email_verify', 'email_otp', 'recovery', 'step_up'],
+      enum: ['email_verify', 'email_otp', 'recovery', 'step_up', 'passkey_register', 'passkey_auth'],
       required: true,
     },
     codeHash: {

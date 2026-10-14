@@ -30,3 +30,13 @@ Maps every SRS FR ID to implementation files and tests. Updated at the end of ea
 | AUTH-09 | P0 | Client idle auto-lock and unlock page | client/src/hooks/useIdleLock.js, client/src/pages/Unlock.jsx | manual |
 | NFR-S4 | P0 | Zod boundary defense against NoSQL injection | server/src/routes/auth.js | server/test/auth.test.js |
 | NFR-S6 | P0 | Audit event logging | server/lib/audit.js, server/src/models/Audit.js | server/test/auth.test.js |
+| — | — | Phase 3: MFA | | |
+| MFA-01 | P0 | TOTP setup & verify with AES-GCM secret at rest | server/src/routes/mfa.js, client/src/components/MfaSetup.jsx | server/test/mfa.test.js |
+| MFA-02 | P0 | 10 single-use Crockford Base32 backup codes | server/src/routes/mfa.js, client/src/components/MfaSetup.jsx | server/test/mfa.test.js |
+| MFA-03 | P0 | Email OTP fallback with 60s cooldown | server/src/routes/auth.js, server/src/routes/mfa.js | server/test/mfa.test.js |
+| MFA-04 | P1 | Passkeys / WebAuthn as second factor | server/lib/webauthn.js, server/src/routes/mfa.js, client/src/components/MfaSetup.jsx | manual / unit |
+| MFA-05 | P0 | mfaToken challenge flow on login | server/src/routes/auth.js, client/src/pages/Login.jsx | server/test/mfa.test.js |
+| MFA-06 | P0 | Step-up requirement for disabling MFA | server/src/middleware/stepUp.js, server/src/routes/mfa.js | server/test/mfa.test.js |
+| MFA-07 | P0 | Rate limits & audit logging for MFA | server/src/routes/auth.js, server/src/routes/mfa.js | server/test/mfa.test.js |
+| AUTH-16 | P0 | Step-up token generation & middleware | server/lib/tokens.js, server/src/middleware/stepUp.js, server/src/routes/auth.js | server/test/mfa.test.js |
+

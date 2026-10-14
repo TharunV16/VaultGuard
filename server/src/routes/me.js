@@ -29,6 +29,12 @@ router.get('/', requireAuth, async (req, res) => {
         user.mfa?.emailOtp?.enabled ||
         (user.mfa?.passkeys && user.mfa.passkeys.length > 0)
       ),
+      mfa: {
+        totpEnabled: Boolean(user.mfa?.totp?.enabled),
+        emailOtpEnabled: Boolean(user.mfa?.emailOtp?.enabled),
+        passkeysCount: user.mfa?.passkeys?.length || 0,
+        hasBackupCodes: Boolean(user.mfa?.backupCodes?.some((b) => !b.used)),
+      },
       createdAt: user.createdAt,
     },
   });

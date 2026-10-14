@@ -5,14 +5,96 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { User } from '../models/User.js';
 import { Session } from '../models/Session.js';
 import { Challenge } from '../models/Challenge.js';
-import { hashAuthKey, verifyAuthKey, hashRecoveryVerifier, safeEqual, randomHex } from '../../lib/crypto.js';
-import { issueAccessToken, generateRefreshToken, hashRefreshToken } from '../../lib/tokens.js';
+import {
+  hashAuthKey,
+  verifyAuthKey,
+  hashRecoveryVerifier,
+  hashToken,
+  decryptServerData,
+  safeEqual,
+  randomHex,
+} from '../../lib/crypto.js';
+import {
+  issueAccessToken,
+  generateRefreshToken,
+  hashRefreshToken,
+  issueMfaToken,
+  verifyMfaToken,
+  issueStepUpToken,
+} from '../../lib/tokens.js';
+import { verifyTotp } from '../../lib/totp.js';
+import { getAuthenticationOptions, verifyAuthentication } from '../../lib/webauthn.js';
 import { logAudit, getCoarseIp, getDeviceLabel } from '../../lib/audit.js';
 import { sendMail } from '../../lib/mail.js';
 import { config } from '../config.js';
 import { authLimiter, registerLimiter } from '../middleware/rateLimit.js';
 import { validate } from '../middleware/validate.js';
 import { requireAuth } from '../middleware/auth.js';
+
+/**
+ * Common session and token issuance helper for password and MFA logins.
+ * @param {import('../models/User.js').User} user
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+async function issueSessionAndResponse(user, req, res) {
+  const { raw, hash, expiresAt } = generateRefreshToken();
+  const familyId = randomHex(16);
+  const ua = req.headers['user-agent'] || '';
+  const ip = req.headers['x-forwarded-for']?.toString().split(',')[0] || req.socket?.remoteAddress || '';
+
+  await Session.create({
+    userId: user._id,
+    tokenHash: hash,
+    familyId,
+    device: {
+      ua,
+      ipPrefix: getCoarseIp(ip),
+      label: getDeviceLabel(ua, ip),
+    },
+    expiresAt,
+  });
+
+  res.cookie('refresh_token', raw, {
+    httpOnly: true,
+    secure: config.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/api/v1/auth',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
+  const accessToken = issueAccessToken({
+    id: user._id.toString(),
+    email: user.email,
+    role: user.role,
+  });
+
+  return {
+    accessToken,
+    wrappedVaultKey: user.wrappedVaultKey,
+    user: {
+      id: user._id,
+      email: user.email,
+      role: user.role,
+      emailVerified: user.emailVerified,
+      settings: user.settings,
+    },
+  };
+}
+
+/**
+ * Extract MFA token from Authorization header or body.
+ * @param {import('express').Request} req
+ * @returns {string|null}
+ */
+function extractMfaToken(req) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.slice(7).trim();
+  }
+  return req.body?.mfaToken || null;
+}
+
 
 const router = Router();
 
@@ -229,8 +311,7 @@ router.post('/login', authLimiter, validate(LoginSchema), async (req, res) => {
   const hasPasskeys = user.mfa?.passkeys?.length > 0;
 
   if (hasTotp || hasEmailOtp || hasPasskeys) {
-    // Issue single-use mfaToken (handled in Phase 3)
-    const mfaToken = issueAccessToken({ id: user._id.toString(), email: user.email, role: 'mfa_pending' });
+    const mfaToken = issueMfaToken({ id: user._id.toString(), email: user.email });
     const methods = [];
     if (hasTotp) methods.push('totp');
     if (hasEmailOtp) methods.push('email_otp');
@@ -241,50 +322,351 @@ router.post('/login', authLimiter, validate(LoginSchema), async (req, res) => {
   }
 
   // No MFA: issue session
-  const { raw, hash, expiresAt } = generateRefreshToken();
-  const familyId = randomHex(16);
-  const ua = req.headers['user-agent'] || '';
-  const ip = req.headers['x-forwarded-for']?.toString().split(',')[0] || req.socket?.remoteAddress || '';
-
-  await Session.create({
-    userId: user._id,
-    tokenHash: hash,
-    familyId,
-    device: {
-      ua,
-      ipPrefix: getCoarseIp(ip),
-      label: getDeviceLabel(ua, ip),
-    },
-    expiresAt,
-  });
-
-  res.cookie('refresh_token', raw, {
-    httpOnly: true,
-    secure: config.NODE_ENV === 'production',
-    sameSite: 'strict',
-    path: '/api/v1/auth',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
-
-  const accessToken = issueAccessToken({
-    id: user._id.toString(),
-    email: user.email,
-    role: user.role,
-  });
-
+  const result = await issueSessionAndResponse(user, req, res);
   await logAudit({ userId: user._id, event: 'auth.login', req });
+  res.json(result);
+});
 
-  res.json({
-    accessToken,
-    wrappedVaultKey: user.wrappedVaultKey,
-    user: {
-      id: user._id,
-      email: user.email,
-      role: user.role,
-      emailVerified: user.emailVerified,
-      settings: user.settings,
-    },
+// ── MFA: Send Email OTP (MFA-03) ─────────────────────────────────────────────
+router.post('/mfa/email/send', authLimiter, async (req, res) => {
+  const token = extractMfaToken(req);
+  if (!token) {
+    return res.status(401).json({ error: { code: 'MFA_TOKEN_REQUIRED', message: 'MFA token required' } });
+  }
+
+  let payload;
+  try {
+    payload = verifyMfaToken(token);
+  } catch {
+    return res.status(401).json({ error: { code: 'MFA_TOKEN_INVALID', message: 'Valid MFA token required' } });
+  }
+
+  const user = await User.findById(payload.sub);
+  if (!user || user.status !== 'active') {
+    return res.status(401).json({ error: { code: 'USER_INACTIVE', message: 'User not found or inactive' } });
+  }
+
+  // 60-second cooldown
+  const recent = await Challenge.findOne({
+    userId: user._id,
+    purpose: 'email_otp',
+    createdAt: { $gt: new Date(Date.now() - 60 * 1000) },
   });
+  if (recent) {
+    return res.status(429).json({
+      error: { code: 'COOLDOWN_ACTIVE', message: 'Please wait before requesting another code' },
+    });
+  }
+
+  const codeNum = (randomBytes(4).readUInt32BE(0) % 900000) + 100000;
+  const code = String(codeNum);
+  const codeHash = hashToken(code);
+
+  await Challenge.create({
+    userId: user._id,
+    purpose: 'email_otp',
+    codeHash,
+    attempts: 0,
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+  });
+
+  await sendMail({
+    to: user.email,
+    subject: 'Your VaultGuard security code',
+    text: `Your one-time security code is: ${code}\nIt expires in 10 minutes.`,
+  });
+
+  res.json({ status: 'ok', message: 'Security code sent to your email' });
+});
+
+// ── MFA: Passkey Authentication Options (MFA-04) ─────────────────────────────
+router.post('/mfa/passkey/options', authLimiter, async (req, res) => {
+  const token = extractMfaToken(req);
+  if (!token) {
+    return res.status(401).json({ error: { code: 'MFA_TOKEN_REQUIRED', message: 'MFA token required' } });
+  }
+
+  let payload;
+  try {
+    payload = verifyMfaToken(token);
+  } catch {
+    return res.status(401).json({ error: { code: 'MFA_TOKEN_INVALID', message: 'Valid MFA token required' } });
+  }
+
+  const user = await User.findById(payload.sub);
+  if (!user || !user.mfa?.passkeys?.length) {
+    return res.status(400).json({ error: { code: 'NO_PASSKEYS', message: 'No registered passkeys found' } });
+  }
+
+  const options = await getAuthenticationOptions(user.mfa.passkeys);
+
+  await Challenge.create({
+    userId: user._id,
+    purpose: 'passkey_auth',
+    codeHash: options.challenge,
+    expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+  });
+
+  res.json(options);
+});
+
+// ── MFA: Verify Second Factor & Login (MFA-05) ────────────────────────────────
+const MfaVerifySchema = z.object({
+  mfaToken: z.string().optional(),
+  method: z.enum(['totp', 'backup_code', 'email_otp', 'passkey']),
+  code: z.string().trim().optional(),
+  response: z.any().optional(),
+});
+
+router.post('/mfa/verify', authLimiter, validate(MfaVerifySchema), async (req, res) => {
+  const token = extractMfaToken(req);
+  if (!token) {
+    return res.status(401).json({ error: { code: 'MFA_TOKEN_REQUIRED', message: 'MFA token required' } });
+  }
+
+  let payload;
+  try {
+    payload = verifyMfaToken(token);
+  } catch {
+    return res.status(401).json({ error: { code: 'MFA_TOKEN_INVALID', message: 'Valid MFA token required' } });
+  }
+
+  const user = await User.findById(payload.sub);
+  if (!user || user.status !== 'active') {
+    return res.status(401).json({ error: { code: 'USER_INACTIVE', message: 'User not found or inactive' } });
+  }
+
+  const { method, code, response } = req.body;
+
+  if (method === 'totp') {
+    if (!user.mfa?.totp?.enabled || !user.mfa?.totp?.secret) {
+      return res.status(400).json({ error: { code: 'TOTP_NOT_ENABLED', message: 'TOTP is not enabled' } });
+    }
+    if (!code) {
+      return res.status(400).json({ error: { code: 'CODE_REQUIRED', message: 'Verification code is required' } });
+    }
+    const secret = decryptServerData(JSON.parse(user.mfa.totp.secret));
+    const { valid, step } = verifyTotp(secret, code);
+    if (!valid) {
+      await logAudit({ userId: user._id, event: 'auth.mfa_failed', req, meta: { method: 'totp' } });
+      return res.status(401).json({ error: { code: 'INVALID_CODE', message: 'Invalid verification code' } });
+    }
+    if (user.mfa.totp.lastStep !== undefined && step <= user.mfa.totp.lastStep) {
+      return res.status(401).json({ error: { code: 'CODE_ALREADY_USED', message: 'Code has already been used' } });
+    }
+    user.mfa.totp.lastStep = step;
+    await user.save();
+  } else if (method === 'backup_code') {
+    if (!code) {
+      return res.status(400).json({ error: { code: 'CODE_REQUIRED', message: 'Backup code is required' } });
+    }
+    const clean = code.toUpperCase().replace(/[^0-9A-Z]/g, '');
+    const targetHash = hashToken(clean);
+    const backup = user.mfa?.backupCodes?.find((b) => !b.used && safeEqual(b.codeHash, targetHash));
+    if (!backup) {
+      await logAudit({ userId: user._id, event: 'auth.mfa_failed', req, meta: { method: 'backup_code' } });
+      return res.status(401).json({ error: { code: 'INVALID_BACKUP_CODE', message: 'Invalid or used backup code' } });
+    }
+    backup.used = true;
+    backup.usedAt = new Date();
+    user.markModified('mfa.backupCodes');
+    await user.save();
+  } else if (method === 'email_otp') {
+    if (!code) {
+      return res.status(400).json({ error: { code: 'CODE_REQUIRED', message: 'Verification code is required' } });
+    }
+    const challenge = await Challenge.findOne({
+      userId: user._id,
+      purpose: 'email_otp',
+      usedAt: null,
+      expiresAt: { $gt: new Date() },
+    }).sort({ createdAt: -1 });
+
+    if (!challenge) {
+      return res.status(401).json({ error: { code: 'INVALID_CODE', message: 'Invalid or expired verification code' } });
+    }
+    if (challenge.attempts >= 5) {
+      return res.status(401).json({ error: { code: 'MAX_ATTEMPTS_EXCEEDED', message: 'Maximum verification attempts exceeded' } });
+    }
+
+    const codeHash = hashToken(code.trim());
+    if (!safeEqual(challenge.codeHash, codeHash)) {
+      challenge.attempts = (challenge.attempts || 0) + 1;
+      await challenge.save();
+      await logAudit({ userId: user._id, event: 'auth.mfa_failed', req, meta: { method: 'email_otp' } });
+      return res.status(401).json({ error: { code: 'INVALID_CODE', message: 'Invalid verification code' } });
+    }
+
+    challenge.usedAt = new Date();
+    await challenge.save();
+  } else if (method === 'passkey') {
+    if (!response || !response.id) {
+      return res.status(400).json({ error: { code: 'PASSKEY_RESPONSE_REQUIRED', message: 'Passkey response is required' } });
+    }
+    const challenge = await Challenge.findOne({
+      userId: user._id,
+      purpose: 'passkey_auth',
+      usedAt: null,
+      expiresAt: { $gt: new Date() },
+    }).sort({ createdAt: -1 });
+
+    if (!challenge) {
+      return res.status(401).json({ error: { code: 'CHALLENGE_EXPIRED', message: 'Passkey challenge expired' } });
+    }
+
+    const passkey = user.mfa?.passkeys?.find((p) => p.id === response.id);
+    if (!passkey) {
+      return res.status(401).json({ error: { code: 'PASSKEY_NOT_FOUND', message: 'Unrecognized passkey' } });
+    }
+
+    let verification;
+    try {
+      verification = await verifyAuthentication(response, challenge.codeHash, passkey);
+    } catch {
+      await logAudit({ userId: user._id, event: 'auth.mfa_failed', req, meta: { method: 'passkey' } });
+      return res.status(401).json({ error: { code: 'PASSKEY_VERIFICATION_FAILED', message: 'Passkey verification failed' } });
+    }
+
+    if (!verification.verified) {
+      await logAudit({ userId: user._id, event: 'auth.mfa_failed', req, meta: { method: 'passkey' } });
+      return res.status(401).json({ error: { code: 'PASSKEY_VERIFICATION_FAILED', message: 'Passkey verification failed' } });
+    }
+
+    passkey.counter = verification.authenticationInfo.newCounter;
+    challenge.usedAt = new Date();
+    await challenge.save();
+    await user.save();
+  }
+
+  const result = await issueSessionAndResponse(user, req, res);
+  await logAudit({ userId: user._id, event: 'auth.mfa_success', req, meta: { method } });
+  res.json(result);
+});
+
+// ── Step-Up Authentication (AUTH-16) ─────────────────────────────────────────
+const StepUpSchema = z.object({
+  authKey: z.string().regex(/^[0-9a-f]{64}$/i),
+  method: z.enum(['totp', 'backup_code', 'email_otp', 'passkey']).optional(),
+  code: z.string().trim().optional(),
+  response: z.any().optional(),
+});
+
+router.post('/step-up', requireAuth, authLimiter, validate(StepUpSchema), async (req, res) => {
+  const { authKey, method, code, response } = req.body;
+  const user = await User.findById(req.user.id);
+  if (!user || user.status !== 'active') {
+    return res.status(401).json({ error: { code: 'USER_INACTIVE', message: 'User not found or inactive' } });
+  }
+
+  const valid = await verifyAuthKey(authKey, user.authHash.salt, user.authHash.hash);
+  if (!valid) {
+    await logAudit({ userId: user._id, event: 'auth.step_up_failed', req });
+    return res.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' } });
+  }
+
+  const hasTotp = user.mfa?.totp?.enabled;
+  const hasEmailOtp = user.mfa?.emailOtp?.enabled;
+  const hasPasskeys = user.mfa?.passkeys?.length > 0;
+  const mfaEnabled = hasTotp || hasEmailOtp || hasPasskeys;
+
+  if (mfaEnabled) {
+    if (!method) {
+      const methods = [];
+      if (hasTotp) methods.push('totp');
+      if (hasEmailOtp) methods.push('email_otp');
+      if (hasPasskeys) methods.push('passkey');
+      if (user.mfa?.backupCodes?.some((b) => !b.used)) methods.push('backup_code');
+      return res.status(400).json({
+        error: { code: 'MFA_REQUIRED', message: 'Second factor required for step-up' },
+        methods,
+      });
+    }
+
+    if (method === 'totp') {
+      if (!user.mfa?.totp?.enabled || !user.mfa?.totp?.secret) {
+        return res.status(400).json({ error: { code: 'TOTP_NOT_ENABLED', message: 'TOTP is not enabled' } });
+      }
+      if (!code) {
+        return res.status(400).json({ error: { code: 'CODE_REQUIRED', message: 'Verification code is required' } });
+      }
+      const secret = decryptServerData(JSON.parse(user.mfa.totp.secret));
+      const { valid: totpValid, step } = verifyTotp(secret, code);
+      if (!totpValid) {
+        return res.status(401).json({ error: { code: 'INVALID_CODE', message: 'Invalid verification code' } });
+      }
+      if (user.mfa.totp.lastStep !== undefined && step <= user.mfa.totp.lastStep) {
+        return res.status(401).json({ error: { code: 'CODE_ALREADY_USED', message: 'Code has already been used' } });
+      }
+      user.mfa.totp.lastStep = step;
+      await user.save();
+    } else if (method === 'backup_code') {
+      if (!code) {
+        return res.status(400).json({ error: { code: 'CODE_REQUIRED', message: 'Backup code is required' } });
+      }
+      const clean = code.toUpperCase().replace(/[^0-9A-Z]/g, '');
+      const targetHash = hashToken(clean);
+      const backup = user.mfa?.backupCodes?.find((b) => !b.used && safeEqual(b.codeHash, targetHash));
+      if (!backup) {
+        return res.status(401).json({ error: { code: 'INVALID_BACKUP_CODE', message: 'Invalid or used backup code' } });
+      }
+      backup.used = true;
+      backup.usedAt = new Date();
+      user.markModified('mfa.backupCodes');
+      await user.save();
+    } else if (method === 'email_otp') {
+      if (!code) {
+        return res.status(400).json({ error: { code: 'CODE_REQUIRED', message: 'Verification code is required' } });
+      }
+      const challenge = await Challenge.findOne({
+        userId: user._id,
+        purpose: 'email_otp',
+        usedAt: null,
+        expiresAt: { $gt: new Date() },
+      }).sort({ createdAt: -1 });
+
+      if (!challenge) {
+        return res.status(401).json({ error: { code: 'INVALID_CODE', message: 'Invalid or expired verification code' } });
+      }
+      const codeHash = hashToken(code.trim());
+      if (!safeEqual(challenge.codeHash, codeHash)) {
+        challenge.attempts = (challenge.attempts || 0) + 1;
+        await challenge.save();
+        return res.status(401).json({ error: { code: 'INVALID_CODE', message: 'Invalid verification code' } });
+      }
+      challenge.usedAt = new Date();
+      await challenge.save();
+    } else if (method === 'passkey') {
+      if (!response || !response.id) {
+        return res.status(400).json({ error: { code: 'PASSKEY_RESPONSE_REQUIRED', message: 'Passkey response is required' } });
+      }
+      const challenge = await Challenge.findOne({
+        userId: user._id,
+        purpose: 'passkey_auth',
+        usedAt: null,
+        expiresAt: { $gt: new Date() },
+      }).sort({ createdAt: -1 });
+
+      if (!challenge) {
+        return res.status(401).json({ error: { code: 'CHALLENGE_EXPIRED', message: 'Passkey challenge expired' } });
+      }
+      const passkey = user.mfa?.passkeys?.find((p) => p.id === response.id);
+      if (!passkey) {
+        return res.status(401).json({ error: { code: 'PASSKEY_NOT_FOUND', message: 'Unrecognized passkey' } });
+      }
+      const verification = await verifyAuthentication(response, challenge.codeHash, passkey);
+      if (!verification.verified) {
+        return res.status(401).json({ error: { code: 'PASSKEY_VERIFICATION_FAILED', message: 'Passkey verification failed' } });
+      }
+      passkey.counter = verification.authenticationInfo.newCounter;
+      challenge.usedAt = new Date();
+      await challenge.save();
+      await user.save();
+    }
+  }
+
+  const stepUpToken = issueStepUpToken({ id: user._id.toString(), email: user.email });
+  await logAudit({ userId: user._id, event: 'auth.step_up', req });
+  res.json({ status: 'ok', stepUpToken });
 });
 
 // ── Refresh Token Rotation with Reuse Detection (AUTH-05) ───────────────────

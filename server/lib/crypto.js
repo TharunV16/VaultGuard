@@ -58,12 +58,12 @@ export async function verifyAuthKey(authKeyHex, storedSalt, storedHash) {
 
 /**
  * Hash a high-entropy token (refresh token, recovery token, backup code) with SHA-256.
- * @param {string} tokenHex
+ * @param {string} token
  * @returns {string} hex digest
  */
-export function hashToken(tokenHex) {
+export function hashToken(token) {
   return createHmac('sha256', SERVER_KEY)
-    .update(Buffer.from(tokenHex, 'hex'))
+    .update(String(token), 'utf8')
     .digest('hex');
 }
 
