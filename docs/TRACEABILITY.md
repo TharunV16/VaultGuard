@@ -75,4 +75,15 @@ Maps every SRS FR ID to implementation files and tests. Updated at the end of ea
 | FIX-01 | P0 | Fix wizard: one-click strong replacement per flagged item | client/src/pages/SecurityCenter.jsx | — |
 | UI-SC | P1 | Security Center: flagged list, filter tabs, HIBP scan, score bar | client/src/pages/SecurityCenter.jsx | — |
 | UI-DB | P1 | Dashboard: SVG score ring, breakdown, quick stats | client/src/pages/Dashboard.jsx | — |
+| — | — | Phase 7: Import/Export + Secure Send | | |
+| IMP-01 | P1 | CSV import: Chrome/Edge format auto-detected | client/src/lib/importParser.js | client/src/test/import.test.js |
+| IMP-02 | P1 | CSV import: Bitwarden format (login + note types) | client/src/lib/importParser.js | client/src/test/import.test.js |
+| IMP-03 | P1 | CSV import: LastPass format, strips http://sn | client/src/lib/importParser.js | client/src/test/import.test.js |
+| IMP-04 | P1 | CSV import: generic best-effort column matching | client/src/lib/importParser.js | client/src/test/import.test.js |
+| EXP-01 | P1 | Bulk import route: POST /vault/items/bulk (max 500, 5000 cap) | server/src/routes/vault.js | — |
+| SND-01 | P1 | Create send: AES-256-GCM, key only in URL fragment | server/src/routes/send.js, client/src/pages/Send.jsx | server/test/send.test.js |
+| SND-02 | P1 | Recipient access: POST (not GET), atomic view limit | server/src/routes/send.js, client/src/pages/SendView.jsx | server/test/send.test.js |
+| SND-03 | P1 | Owner list and revoke sends; TTL auto-purge | server/src/routes/send.js, client/src/pages/Send.jsx | server/test/send.test.js |
+| SND-04 | P1 | Fragment key never reaches server; referrerPolicy no-referrer | client/src/pages/SendView.jsx | server/test/send.test.js |
+| AT-26 | P0 | Parallel access race: exactly one wins with maxViews=1 | server/src/routes/send.js | server/test/send.test.js |
 
