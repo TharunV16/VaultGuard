@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useIdleLock } from '../hooks/useIdleLock.js';
 
 const NAV_ITEMS = [
   { to: '/app', label: 'Dashboard', Icon: LayoutDashboard, end: true },
@@ -52,6 +53,7 @@ function ThemeToggle() {
 
 export default function Layout() {
   const { lock } = useAuth();
+  useIdleLock();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
 

@@ -11,6 +11,7 @@ function limiter(opts) {
     windowMs,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
+    skip: (req) => process.env.NODE_ENV === 'test' && !req.headers['x-test-rate-limit'],
     handler: (_req, res) => {
       res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later.' } });
     },

@@ -17,5 +17,16 @@ Maps every SRS FR ID to implementation files and tests. Updated at the end of ea
 | REC-01 | P0 | 160-bit Recovery key generation & derivation | client/src/lib/crypto.js | client/src/test/crypto.test.js |
 | VLT-01 | P0 | Item AES-256-GCM encryption with AAD binding | client/src/lib/crypto.js | client/src/test/crypto.test.js |
 | NFR-S5 | P0 | AES-256-GCM server data encryption at rest | server/lib/crypto.js | server/test/crypto.test.js |
-| AUTH-03 | P0 | JWT access & opaque refresh token generation | server/lib/tokens.js | Phase 2 |
-
+| AUTH-03 | P0 | JWT access & opaque refresh token generation | server/lib/tokens.js | server/test/auth.test.js |
+| — | — | Phase 2: Auth and Sessions | | |
+| AUTH-01 | P0 | Registration endpoint & duplicate 202 | server/src/routes/auth.js | server/test/auth.test.js |
+| AUTH-02 | P0 | Master password policy & strength meter | client/src/components/StrengthMeter.jsx, Register.jsx | client/src/test/strength.test.js |
+| AUTH-03 | P0 | Prelogin endpoint with deterministic decoy salt | server/src/routes/auth.js | server/test/auth.test.js |
+| AUTH-04 | P0 | Login with scrypt verify and lockout | server/src/routes/auth.js, client/src/pages/Login.jsx | server/test/auth.test.js |
+| AUTH-05 | P0 | Refresh token rotation & reuse detection | server/src/routes/auth.js | server/test/auth.test.js |
+| AUTH-06 | P0 | Logout & logout-all session revocation | server/src/routes/auth.js | server/test/auth.test.js |
+| AUTH-07 | P0 | Email verification challenge flow | server/src/routes/auth.js, client/src/pages/VerifyEmail.jsx | server/test/auth.test.js |
+| AUTH-08 | P0 | Progressive account lockout (5/10/15) | server/src/routes/auth.js | server/test/auth.test.js |
+| AUTH-09 | P0 | Client idle auto-lock and unlock page | client/src/hooks/useIdleLock.js, client/src/pages/Unlock.jsx | manual |
+| NFR-S4 | P0 | Zod boundary defense against NoSQL injection | server/src/routes/auth.js | server/test/auth.test.js |
+| NFR-S6 | P0 | Audit event logging | server/lib/audit.js, server/src/models/Audit.js | server/test/auth.test.js |

@@ -81,6 +81,26 @@ export function AuthProvider({ children }) {
     dispatch({ type: 'LOCKED' });
   }, []);
 
+  // Wire api.js handlers
+  useEffect(() => {
+    setAuthHandlers(
+      () => state.accessToken,
+      () => lock()
+    );
+  }, [state.accessToken, lock]);
+
+  // Global Ctrl/Cmd+L lock shortcut (per skill.md §11)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        lock();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lock]);
+
   const logout = useCallback(async (all = false) => {
     try {
       await fetch(`/api/v1/auth/logout${all ? '-all' : ''}`, {

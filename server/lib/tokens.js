@@ -3,10 +3,12 @@
  * server/lib/tokens.js
  * JWT access tokens and opaque rotating refresh tokens.
  */
-import { sign, verify } from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
 import { randomBytes } from 'node:crypto';
 import { config } from '../src/config.js';
 import { hashToken } from './crypto.js';
+
+const { sign, verify } = jwt;
 
 const ACCESS_TTL = '10m';
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
