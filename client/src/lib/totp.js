@@ -1,4 +1,7 @@
-// @ts-check
+/**
+ * client/src/lib/totp.js
+ * Client-side TOTP calculation (RFC 6238 / RFC 4226) via Web Crypto.
+ */
 
 /**
  * Base32 character set (RFC 4648)

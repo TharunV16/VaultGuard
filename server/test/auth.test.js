@@ -1,4 +1,3 @@
-// @ts-check
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { MongoMemoryServer } from 'mongodb-memory-server';
@@ -9,10 +8,10 @@ import { Session } from '../src/models/Session.js';
 import { Challenge } from '../src/models/Challenge.js';
 import { hashAuthKey } from '../lib/crypto.js';
 
-let mongod;
-let app;
-let server;
-let baseUrl;
+let mongod = null;
+let app = null;
+let server = null;
+let baseUrl = '';
 
 before(async () => {
   const uri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/vaultguard_test';
