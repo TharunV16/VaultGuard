@@ -47,15 +47,17 @@ function s(v) {
  */
 export function detectFormat(csv) {
   const firstLine = csv.split('\n')[0].toLowerCase();
+  // Bitwarden: has login_uri and login_username
   if (firstLine.includes('type') && firstLine.includes('login_uri') && firstLine.includes('login_username')) {
     return 'bitwarden';
   }
-  if (firstLine.includes('url') && firstLine.includes('username') && firstLine.includes('password') && firstLine.includes('name') && !firstLine.includes('type')) {
-    // Chrome exports: name,url,username,password
-    return 'chrome';
-  }
+  // LastPass: has grouping field (check before Chrome since LastPass also has url/username/password/name)
   if (firstLine.includes('grouping') && firstLine.includes('username') && firstLine.includes('password') && firstLine.includes('url')) {
     return 'lastpass';
+  }
+  // Chrome/Edge: name,url,username,password (no type, no grouping)
+  if (firstLine.includes('url') && firstLine.includes('username') && firstLine.includes('password') && firstLine.includes('name') && !firstLine.includes('type')) {
+    return 'chrome';
   }
   return 'generic';
 }
