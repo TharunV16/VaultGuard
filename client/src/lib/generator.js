@@ -1,4 +1,5 @@
 // @ts-check
+import { EFF_SHORT_WORDLIST } from './wordlist.js';
 
 const CHARSETS = {
   uppercase: 'ABCDEFGHJKLMNPQRSTUVWXYZ', // Cleaned if ambiguous
@@ -62,10 +63,10 @@ export function generatePassword({
 } = {}) {
   const chosenClasses = [];
 
-  let up = excludeAmbiguous ? CHARSETS.uppercase : CHARSETS.uppercaseFull;
-  let low = excludeAmbiguous ? CHARSETS.lowercase : CHARSETS.lowercaseFull;
-  let num = excludeAmbiguous ? CHARSETS.numbers : CHARSETS.numbersFull;
-  let sym = excludeAmbiguous ? CHARSETS.symbols.replace(/\|/g, '') : CHARSETS.symbolsFull;
+  const up = excludeAmbiguous ? CHARSETS.uppercase : CHARSETS.uppercaseFull;
+  const low = excludeAmbiguous ? CHARSETS.lowercase : CHARSETS.lowercaseFull;
+  const num = excludeAmbiguous ? CHARSETS.numbers : CHARSETS.numbersFull;
+  const sym = excludeAmbiguous ? CHARSETS.symbols.replace(/\|/g, '') : CHARSETS.symbolsFull;
 
   if (uppercase) chosenClasses.push(up);
   if (lowercase) chosenClasses.push(low);
@@ -97,15 +98,114 @@ export function generatePassword({
 }
 
 /**
+ * Generate a memorable passphrase from the EFF short wordlist (GEN-02).
+ * @param {object} [options]
+ * @param {number} [options.words=6] - count of words (3..10)
+ * @param {string} [options.separator='-']
+ * @param {boolean} [options.capitalize=true]
+ * @param {boolean} [options.includeNumber=true]
+ * @returns {string}
+ */
+export function generatePassphrase({
+  words = 6,
+  separator = '-',
+  capitalize = true,
+  includeNumber = true,
+} = {}) {
+  const count = Math.max(3, Math.min(10, words));
+  const list = EFF_SHORT_WORDLIST;
+  const selectedWords = [];
+
+  for (let i = 0; i < count; i++) {
+    let word = list[secureRandomInt(list.length)];
+    if (capitalize) {
+      word = word.charAt(0).toUpperCase() + word.slice(1);
+    }
+    selectedWords.push(word);
+  }
+
+  if (includeNumber) {
+    const digit = secureRandomInt(10);
+    // Append number to random word or at the end
+    const idx = secureRandomInt(selectedWords.length);
+    selectedWords[idx] = `${selectedWords[idx]}${digit}`;
+  }
+
+  return selectedWords.join(separator);
+}
+
+/**
  * Generate a CSPRNG numeric PIN (GEN-03).
- * @param {number} [length=6]
+ * @param {number} [length=6] - length (4..12)
  * @returns {string}
  */
 export function generatePin(length = 6) {
+  const len = Math.max(4, Math.min(12, length));
   const digits = '0123456789';
   const result = [];
-  for (let i = 0; i < length; i++) {
+  for (let i = 0; i < len; i++) {
     result.push(digits[secureRandomInt(digits.length)]);
   }
   return result.join('');
+}
+
+/**
+ * Calculate approximate entropy bits for generated secrets.
+ * @param {'password'|'passphrase'|'pin'} type
+ * @param {object} options
+ * @returns {number}
+ */
+export function calculateEntropy(type, options = {}) {
+  if (type === 'password') {
+    const {
+      length = 20,
+      uppercase = true,
+      lowercase = true,
+      numbers = true,
+      symbols = true,
+      excludeAmbiguous = false,
+    } = options;
+    let poolSize = 0;
+    if (uppercase) poolSize += excludeAmbiguous ? CHARSETS.uppercase.length : 26;
+    if (lowercase) poolSize += excludeAmbiguous ? CHARSETS.lowercase.length : 26;
+    if (numbers) poolSize += excludeAmbiguous ? CHARSETS.numbers.length : 10;
+    if (symbols) poolSize += excludeAmbiguous ? CHARSETS.symbols.length : 32;
+    if (poolSize === 0) poolSize = 26;
+    return Math.round(length * Math.log2(poolSize));
+  }
+
+  if (type === 'passphrase') {
+    const { words = 6, includeNumber = true } = options;
+    let bits = words * Math.log2(EFF_SHORT_WORDLIST.length); // log2(1296) ≈ 10.34
+    if (includeNumber) bits += Math.log2(10); // ≈ 3.32
+    return Math.round(bits);
+  }
+
+  if (type === 'pin') {
+    const { length = 6 } = options;
+    return Math.round(length * Math.log2(10));
+  }
+
+  return 0;
+}
+
+// ── Generator Options Persistence (GEN-05: non-secret only in localStorage) ──
+const STORAGE_KEY = 'vaultguard_gen_opts';
+
+export function loadGeneratorOptions() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return null;
+    return JSON.parse(saved);
+  } catch {
+    return null;
+  }
+}
+
+export function saveGeneratorOptions(options) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(options));
+  } catch {
+    // Ignore localStorage write failures
+  }
 }

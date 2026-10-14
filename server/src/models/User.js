@@ -70,6 +70,10 @@ const UserSchema = new mongoose.Schema(
     },
     settings: {
       autoLockMinutes: { type: Number, default: 5 },
+      clipboardSeconds: { type: Number, default: 30 },
+      breachAutoScan: { type: Boolean, default: true },
+      snapshotsOptIn: { type: Boolean, default: false },
+      theme: { type: String, default: 'system' },
     },
     role: {
       type: String,
