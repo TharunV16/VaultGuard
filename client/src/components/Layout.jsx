@@ -64,9 +64,14 @@ export default function Layout() {
 
   const sidebar = (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', marginBottom: '0.5rem' }}>
-        <ShieldCheck size={22} color="hsl(var(--accent))" aria-hidden="true" />
-        <span style={{ fontWeight: 700, fontSize: '1rem', color: 'hsl(var(--accent))' }}>VaultGuard</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.5rem 0.75rem', marginBottom: '0.5rem' }} title="VaultGuard - Encrypted Vault & Security Suite">
+        <ShieldCheck size={26} color="hsl(var(--accent))" aria-hidden="true" style={{ flexShrink: 0 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <span style={{ fontWeight: 800, fontSize: '0.95rem', color: 'hsl(var(--accent))', lineHeight: 1.15 }}>VaultGuard</span>
+          <span style={{ fontSize: '0.6875rem', color: 'hsl(var(--text-muted))', lineHeight: 1.15, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            Encrypted Vault & Security Suite
+          </span>
+        </div>
       </div>
       <nav aria-label="Main navigation">
         {NAV_ITEMS.map(({ to, label, Icon, end }) => (

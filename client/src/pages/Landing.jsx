@@ -16,8 +16,8 @@ export default function Landing() {
       }}
     >
       <ShieldCheck size={56} color="hsl(var(--accent))" aria-hidden="true" />
-      <h1 style={{ margin: 0, fontSize: 'clamp(1.75rem, 5vw, 3rem)', fontWeight: 800 }}>
-        VaultGuard
+      <h1 style={{ margin: 0, fontSize: 'clamp(1.5rem, 4vw, 2.5rem)', fontWeight: 800 }}>
+        VaultGuard - Encrypted Vault & Security Suite
       </h1>
       <p style={{ maxWidth: '36ch', color: 'hsl(var(--text-muted))', fontSize: '1.125rem', margin: 0 }}>
         A password manager that coaches you, and can't read your secrets even if it wanted to.
