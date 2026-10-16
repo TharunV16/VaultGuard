@@ -106,3 +106,35 @@ npm run smoke
 ```
 Exercises full user journey:
 Registration → Email Verification → Login → TOTP MFA Enablement → Login with MFA → Encrypted Item Creation → Vault Sync → Emergency Recovery.
+
+---
+
+## 7. Render Free Tier Web Service Deployment
+
+VaultGuard includes a native [render.yaml](file:///c:/Users/Admin/OneDrive/Desktop/VaultGuard/render.yaml) blueprint configuration for 1-click or blueprint-based zero-cost deployment on Render's Free Web Service tier.
+
+### 1. MongoDB Database Setup
+Provision a free database cluster on [MongoDB Atlas](https://www.mongodb.com/atlas):
+1. Create a free **M0 Sandbox** cluster.
+2. Under **Network Access**, add `0.0.0.0/0` (allow access from anywhere) so Render instances can connect.
+3. Under **Database Access**, create a database user and password.
+4. Copy your connection string (`mongodb+srv://<user>:<password>@cluster0.mongodb.net/vaultguard?retryWrites=true&w=majority`).
+
+### 2. Generate Server Encryption Key
+Generate a 32-byte Base64 key:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+### 3. Deploy via Render Blueprint
+1. Push your repository to GitHub.
+2. In the [Render Dashboard](https://dashboard.render.com/), click **New +** → **Blueprint**.
+3. Select your repository. Render automatically reads [render.yaml](file:///c:/Users/Admin/OneDrive/Desktop/VaultGuard/render.yaml).
+4. Supply the required environment values:
+   - `MONGO_URI`: Your MongoDB Atlas connection string.
+   - `SERVER_ENCRYPTION_KEY`: The 32-byte base64 string generated above.
+   - *(Optional)* `SMTP_URL` / `ADMIN_EMAIL` / `CLIENT_ORIGIN` (defaults automatically to your assigned Render URL).
+5. Click **Apply**. Render will automatically:
+   - Install dependencies (`npm install`)
+   - Build client production bundle (`npm run build`)
+   - Launch Express server (`npm start`) serving both API routes and static client SPA with full zero-knowledge encryption!

@@ -1,0 +1,39 @@
+# ── VaultGuard Render Blueprint Specification ─────────────────────────────────
+# Free Tier Web Service Deployment
+# Official Documentation: https://render.com/docs/blueprint-spec
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  - type: web
+    name: vaultguard
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: MONGO_URI
+        sync: false # Set to your MongoDB Atlas connection string (e.g., mongodb+srv://<user>:<password>@cluster0.mongodb.net/vaultguard)
+      - key: CLIENT_ORIGIN
+        sync: false # Optional: e.g., https://vaultguard.onrender.com (defaults to Render external URL if left blank)
+      - key: RP_ID
+        sync: false # Optional: e.g., vaultguard.onrender.com (defaults to Render hostname if left blank)
+      - key: RP_NAME
+        value: VaultGuard
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: SERVER_ENCRYPTION_KEY
+        sync: false # Required: Base64 of 32 random bytes. Generate with: node -e "console.log(crypto.randomBytes(32).toString('base64'))"
+      - key: DECOY_SECRET
+        generateValue: true
+      - key: MAIL_FROM
+        value: "VaultGuard <no-reply@vaultguard.local>"
+      - key: SMTP_URL
+        sync: false # Optional: SMTP connection string (e.g., smtps://user:password@smtp.mailgun.org:465)
+      - key: ADMIN_EMAIL
+        sync: false # Optional: Initial administrator account email

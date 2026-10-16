@@ -13,6 +13,11 @@ import mfaRouter from './routes/mfa.js';
 import meRouter from './routes/me.js';
 import vaultRouter from './routes/vault.js';
 import sendRouter from './routes/send.js';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Factory function — returns the configured Express app without binding a port.
@@ -53,9 +58,22 @@ export function createApp() {
   });
 
   // ── CORS ─────────────────────────────────────────────────────────────────
+  const allowedOrigins = [
+    config.CLIENT_ORIGIN,
+    process.env.RENDER_EXTERNAL_URL,
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ].filter(Boolean);
+
   app.use(
     cors({
-      origin: config.CLIENT_ORIGIN,
+      origin: (origin, callback) => {
+        // Allow requests with no origin (e.g. mobile apps, curl, same-origin) or matching allowed origins
+        if (!origin || allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        return callback(null, false);
+      },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'If-Match', 'x-step-up-token'],
@@ -97,6 +115,19 @@ export function createApp() {
   app.use('/api/v1/me', meRouter);
   app.use('/api/v1/vault', vaultRouter);
   app.use('/api/v1/send', sendRouter);
+
+  // ── Static assets & SPA fallback (Production Web Service) ─────────────────
+  const clientDist = path.resolve(__dirname, '../../client/dist');
+  if (fs.existsSync(clientDist)) {
+    app.use(express.static(clientDist));
+    app.use((req, res, next) => {
+      // Pass through any unmatched /api requests or static file requests with extensions
+      if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.includes('.')) {
+        return res.sendFile(path.join(clientDist, 'index.html'));
+      }
+      next();
+    });
+  }
 
   // ── 404 ───────────────────────────────────────────────────────────────────
   app.use((_req, res) => {

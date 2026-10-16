@@ -5,9 +5,15 @@ import { logger } from '../src/logger.js';
 
 let transporter;
 
-if (config.SMTP_URL) {
-  transporter = nodemailer.createTransport(config.SMTP_URL);
-} else {
+try {
+  if (config.SMTP_URL) {
+    transporter = nodemailer.createTransport(config.SMTP_URL);
+  }
+} catch (err) {
+  logger.error({ err }, '[mail] Failed to initialize SMTP transport, falling back to console');
+}
+
+if (!transporter) {
   // Development / test console transport: logs email safely without secrets in pino
   transporter = {
     async sendMail(opts) {
@@ -27,6 +33,12 @@ if (config.SMTP_URL) {
  * @param {{ to: string, subject: string, text: string, html?: string }} options
  */
 export async function sendMail({ to, subject, text, html }) {
+  if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
+    const codeMatch = text?.match(/code is:\s*([A-Za-z0-9_-]+)/i);
+    if (codeMatch) {
+      console.log(`[email] Verification code for ${to}: ${codeMatch[1]}`);
+    }
+  }
   try {
     return await transporter.sendMail({
       from: config.MAIL_FROM,

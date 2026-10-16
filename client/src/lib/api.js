@@ -50,7 +50,15 @@ export async function api(endpoint, options = {}) {
   const data = await res.json().catch(() => null);
 
   if (!res.ok) {
-    const error = new Error(data?.error?.message || `Request failed with status ${res.status}`);
+    let msg = data?.error?.message;
+    if (!msg) {
+      if (res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504) {
+        msg = 'Server connection error. Please verify the backend is running and try again.';
+      } else {
+        msg = `Request failed with status ${res.status}`;
+      }
+    }
+    const error = new Error(msg);
     // @ts-ignore
     error.status = res.status;
     // @ts-ignore

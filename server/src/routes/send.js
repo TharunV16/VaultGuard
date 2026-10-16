@@ -42,7 +42,12 @@ router.post('/', requireAuth, validate(CreateSendSchema), async (req, res) => {
     expiresAt,
   });
 
-  await logAudit(req.user.id, 'send.create', req, { sendId: send._id, maxViews, expiresIn });
+  await logAudit({
+    userId: req.user.id,
+    event: 'send.create',
+    req,
+    meta: { sendId: send._id, maxViews, expiresIn },
+  });
 
   res.status(201).json({ send: { _id: send._id, maxViews, views: 0, expiresAt } });
 });
@@ -65,7 +70,12 @@ router.delete('/:id', requireAuth, async (req, res) => {
     return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Send not found' } });
   }
 
-  await logAudit(req.user.id, 'send.revoke', req, { sendId: req.params.id });
+  await logAudit({
+    userId: req.user.id,
+    event: 'send.revoke',
+    req,
+    meta: { sendId: req.params.id },
+  });
 
   res.json({ status: 'ok', message: 'Send revoked' });
 });

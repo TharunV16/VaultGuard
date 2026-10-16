@@ -88,8 +88,9 @@ router.get('/sessions', requireAuth, async (req, res) => {
     .sort({ lastUsedAt: -1 })
     .lean();
 
-  const currentCookieHash = req.cookies?.vg_refresh
-    ? createHash('sha256').update(req.cookies.vg_refresh).digest('hex')
+  const cookieVal = req.cookies?.refresh_token || req.cookies?.vg_refresh;
+  const currentCookieHash = cookieVal
+    ? createHash('sha256').update(cookieVal).digest('hex')
     : null;
 
   const result = sessions.map((s) => ({
@@ -129,8 +130,9 @@ router.delete('/sessions/:id', requireAuth, async (req, res) => {
 
 router.delete('/sessions', requireAuth, async (req, res) => {
   // Revoke all other sessions or all sessions for this user
-  const currentCookieHash = req.cookies?.vg_refresh
-    ? createHash('sha256').update(req.cookies.vg_refresh).digest('hex')
+  const cookieVal = req.cookies?.refresh_token || req.cookies?.vg_refresh;
+  const currentCookieHash = cookieVal
+    ? createHash('sha256').update(cookieVal).digest('hex')
     : null;
 
   const filter = {
@@ -360,6 +362,11 @@ router.delete(
     ]);
 
     // Clear refresh cookie
+    res.clearCookie('refresh_token', {
+      httpOnly: true,
+      sameSite: 'strict',
+      path: '/api/v1/auth',
+    });
     res.clearCookie('vg_refresh', {
       httpOnly: true,
       sameSite: 'strict',

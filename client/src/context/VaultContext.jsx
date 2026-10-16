@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useCallback, useEffect } from 'react';
+import { createContext, useContext, useReducer, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from './AuthContext.jsx';
 import { api } from '../lib/api.js';
 import { encryptItem, decryptItem, toHex } from '../lib/crypto.js';
@@ -75,11 +75,15 @@ const INITIAL_STATE = {
 export function VaultProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
   const { status, user, accessToken, vaultKeyRef } = useAuth();
+  const lastSyncedAtRef = useRef(null);
+  const syncedOnceRef = useRef(false);
 
   // Clear vault memory on logout or lock
   useEffect(() => {
     if (status === 'locked' || status === 'unauthenticated') {
       dispatch({ type: 'RESET' });
+      lastSyncedAtRef.current = null;
+      syncedOnceRef.current = false;
     }
   }, [status]);
 
@@ -94,10 +98,12 @@ export function VaultProvider({ children }) {
     dispatch({ type: 'SYNC_START' });
 
     try {
-      const query = state.lastSyncedAt ? `?since=${encodeURIComponent(state.lastSyncedAt)}` : '';
+      const query = lastSyncedAtRef.current ? `?since=${encodeURIComponent(lastSyncedAtRef.current)}` : '';
       const data = await api(`/api/v1/vault/sync${query}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
+
+      lastSyncedAtRef.current = data.serverTime || new Date().toISOString();
 
       const decryptedItems = [];
       for (const it of data.items || []) {
@@ -157,14 +163,15 @@ export function VaultProvider({ children }) {
     } catch (err) {
       dispatch({ type: 'SYNC_FAIL', error: err.message || 'Sync failed' });
     }
-  }, [status, user, accessToken, vaultKeyRef, state.lastSyncedAt]);
+  }, [status, user, accessToken, vaultKeyRef]);
 
   // Initial sync once unlocked
   useEffect(() => {
-    if (status === 'unlocked' && vaultKeyRef.current && user) {
+    if (status === 'unlocked' && vaultKeyRef.current && user && !syncedOnceRef.current) {
+      syncedOnceRef.current = true;
       syncVault();
     }
-  }, [status, syncVault]);
+  }, [status, user, vaultKeyRef, syncVault]);
 
   /**
    * Create an item in the vault

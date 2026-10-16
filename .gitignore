@@ -2,7 +2,20 @@ node_modules/
 client/dist/
 client/node_modules/
 server/node_modules/
+server/package-lock.json
+
+# Environment variables
 .env
+.env.local
+.env.*.local
+
+# Logs and OS files
 *.log
 .DS_Store
 Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+

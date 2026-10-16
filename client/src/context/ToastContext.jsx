@@ -37,6 +37,8 @@ export function ToastProvider({ children }) {
     },
     [dismiss]
   );
+  toast.toast = toast;
+  toast.addToast = toast;
 
   // Cleanup on unmount
   useEffect(() => {

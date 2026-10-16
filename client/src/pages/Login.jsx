@@ -21,7 +21,8 @@ export default function Login() {
   const [emailOtpSent, setEmailOtpSent] = useState(false);
 
   const { dispatch, vaultKeyRef } = useAuth();
-  const { toast } = useToast();
+  const toastCtx = useToast();
+  const toast = typeof toastCtx === 'function' ? toastCtx : (toastCtx?.toast || toastCtx?.addToast || (() => {}));
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {

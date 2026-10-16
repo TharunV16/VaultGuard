@@ -167,12 +167,29 @@ router.post('/register', registerLimiter, validate(RegisterSchema), async (req, 
 
   const existing = await User.findOne({ email });
   if (existing) {
-    // Generic 202 to prevent user enumeration
-    sendMail({
-      to: email,
-      subject: 'Security Alert: Registration attempted',
-      text: 'A registration attempt was made using your email address. If this was you, you can log in or reset your password.',
-    }).catch(() => {});
+    if (!existing.emailVerified) {
+      const verifyCode = randomBytes(4).toString('hex').toUpperCase();
+      const codeHash = createHmac('sha256', config.DECOY_SECRET).update(verifyCode).digest('hex');
+      await Challenge.create({
+        userId: existing._id,
+        purpose: 'email_verify',
+        codeHash,
+        devCode: process.env.NODE_ENV !== 'production' ? verifyCode : undefined,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      });
+      sendMail({
+        to: email,
+        subject: 'Verify your VaultGuard account',
+        text: `Your VaultGuard verification code is: ${verifyCode}\nIt expires in 24 hours.`,
+      }).catch(() => {});
+    } else {
+      // Generic 202 to prevent user enumeration
+      sendMail({
+        to: email,
+        subject: 'Security Alert: Registration attempted',
+        text: 'A registration attempt was made using your email address. If this was you, you can log in or reset your password.',
+      }).catch(() => {});
+    }
     return res.status(202).json({
       message: 'If the email is valid and unverified, instructions have been sent.',
     });
@@ -181,15 +198,25 @@ router.post('/register', registerLimiter, validate(RegisterSchema), async (req, 
   const authHash = await hashAuthKey(authKey);
   const recoveryVerifierHash = hashRecoveryVerifier(recoveryVerifier);
 
-  const user = await User.create({
-    email,
-    kdf,
-    authHash,
-    wrappedVaultKey,
-    recoveryWrappedVaultKey,
-    recoveryVerifierHash,
-    role: config.ADMIN_EMAIL && email === config.ADMIN_EMAIL.toLowerCase() ? 'admin' : 'user',
-  });
+  let user;
+  try {
+    user = await User.create({
+      email,
+      kdf,
+      authHash,
+      wrappedVaultKey,
+      recoveryWrappedVaultKey,
+      recoveryVerifierHash,
+      role: config.ADMIN_EMAIL && email === config.ADMIN_EMAIL.toLowerCase() ? 'admin' : 'user',
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(202).json({
+        message: 'If the email is valid and unverified, instructions have been sent.',
+      });
+    }
+    throw err;
+  }
 
   // Create verification code
   const verifyCode = randomBytes(4).toString('hex').toUpperCase(); // 8-char code
@@ -203,11 +230,15 @@ router.post('/register', registerLimiter, validate(RegisterSchema), async (req, 
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
   });
 
-  await sendMail({
-    to: email,
-    subject: 'Verify your VaultGuard account',
-    text: `Your VaultGuard verification code is: ${verifyCode}\nIt expires in 24 hours.`,
-  });
+  try {
+    await sendMail({
+      to: email,
+      subject: 'Verify your VaultGuard account',
+      text: `Your VaultGuard verification code is: ${verifyCode}\nIt expires in 24 hours.`,
+    });
+  } catch (mailErr) {
+    logger.error({ err: mailErr, email }, 'Failed to dispatch verification email');
+  }
 
   await logAudit({ userId: user._id, event: 'auth.register', req });
 
@@ -373,11 +404,15 @@ router.post('/mfa/email/send', authLimiter, async (req, res) => {
     expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
   });
 
-  await sendMail({
-    to: user.email,
-    subject: 'Your VaultGuard security code',
-    text: `Your one-time security code is: ${code}\nIt expires in 10 minutes.`,
-  });
+  try {
+    await sendMail({
+      to: user.email,
+      subject: 'Your VaultGuard security code',
+      text: `Your one-time security code is: ${code}\nIt expires in 10 minutes.`,
+    });
+  } catch (mailErr) {
+    logger.error({ err: mailErr, email: user.email }, 'Failed to send security code email');
+  }
 
   res.json({ status: 'ok', message: 'Security code sent to your email' });
 });
@@ -800,11 +835,15 @@ router.post('/recovery/start', authLimiter, validate(RecoveryStartSchema), async
 
   const recoveryUrl = `${config.CLIENT_ORIGIN}/recover?token=${token}&email=${encodeURIComponent(user.email)}`;
 
-  await sendMail({
-    to: user.email,
-    subject: 'VaultGuard Account Recovery Link',
-    text: `You requested account recovery for your VaultGuard account.\nClick the link below to proceed:\n${recoveryUrl}\nThis link expires in 15 minutes. If you did not request this, ignore this email.`,
-  });
+  try {
+    await sendMail({
+      to: user.email,
+      subject: 'VaultGuard Account Recovery Link',
+      text: `You requested account recovery for your VaultGuard account.\nClick the link below to proceed:\n${recoveryUrl}\nThis link expires in 15 minutes. If you did not request this, ignore this email.`,
+    });
+  } catch (mailErr) {
+    logger.error({ err: mailErr, email: user.email }, 'Failed to send recovery link email');
+  }
 
   await logAudit({ userId: user._id, event: 'recovery.start', req });
 
