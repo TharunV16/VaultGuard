@@ -9,8 +9,15 @@ const schema = z.object({
   MONGO_URI: z.string().min(1, 'MONGO_URI is required'),
   CLIENT_ORIGIN: z
     .string()
-    .url('CLIENT_ORIGIN must be a URL')
-    .default(process.env.RENDER_EXTERNAL_URL || 'http://localhost:5173'),
+    .transform((v) => v.trim() || process.env.RENDER_EXTERNAL_URL || 'http://localhost:5173')
+    .refine((v) => {
+      try {
+        new URL(v);
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'CLIENT_ORIGIN must be a URL'),
   JWT_ACCESS_SECRET: z
     .string()
     .min(isProd ? 64 : 1, 'JWT_ACCESS_SECRET must be ≥ 64 chars in production'),
@@ -31,7 +38,10 @@ const schema = z.object({
   DECOY_SECRET: z
     .string()
     .min(isProd ? 32 : 1, 'DECOY_SECRET must be ≥ 32 chars in production'),
-  RP_ID: z.string().default(process.env.RENDER_EXTERNAL_HOSTNAME || 'localhost'),
+  RP_ID: z
+    .string()
+    .transform((v) => v.trim() || process.env.RENDER_EXTERNAL_HOSTNAME || 'localhost')
+    .default('localhost'),
   RP_NAME: z.string().default('VaultGuard'),
   SMTP_URL: z.string().default(''),
   MAIL_FROM: z
